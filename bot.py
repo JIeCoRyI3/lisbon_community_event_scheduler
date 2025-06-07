@@ -4,7 +4,13 @@ from datetime import datetime, date
 from calendar import monthcalendar, month_name
 
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, BotCommand
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+    BotCommand,
+    MenuButtonCommands,
+)
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -162,6 +168,8 @@ async def receive_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["location"],
     )
     await update.message.reply_text("Event saved!")
+    # Show the main menu again so the user can immediately view events
+    await start(update, context)
     return ConversationHandler.END
 
 
@@ -170,9 +178,24 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def setup_bot(application: Application) -> None:
+    """Configure commands and the menu button after initialization."""
+    await application.bot.set_my_commands(
+        [
+            BotCommand("start", "Show main menu"),
+            BotCommand("help", "Show help message"),
+            BotCommand("cancel", "Cancel current action"),
+        ]
+    )
+    # Ensure users always see a button that opens the command list
+    await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+
+
 def main():
     database.init_db()
-    application = Application.builder().token(TOKEN).build()
+    application = (
+        Application.builder().token(TOKEN).post_init(setup_bot).build()
+    )
 
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(button)],
@@ -188,14 +211,6 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(conv_handler)
-
-    application.bot.set_my_commands(
-        [
-            BotCommand("start", "Show main menu"),
-            BotCommand("help", "Show help message"),
-            BotCommand("cancel", "Cancel current action"),
-        ]
-    )
 
     application.run_polling()
 
