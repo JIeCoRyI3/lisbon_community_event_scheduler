@@ -95,8 +95,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         text += "\n/delete - delete event"
     if is_superadmin(update):
         text += "\n/refresh - reload admin lists"
-        text += "\n/add-admin - add a new admin"
-        text += "\n/remove-admin - remove an admin"
+        text += "\n/add_admin - add a new admin"
+        text += "\n/remove_admin - remove an admin"
     await update.message.reply_text(text)
 
 
@@ -150,7 +150,7 @@ async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("You are not authorized to add admins.")
         return
     if not context.args:
-        await update.message.reply_text("Usage: /add-admin @username")
+        await update.message.reply_text("Usage: /add_admin @username")
         return
     username = _normalize_username(context.args[0])
     if not username:
@@ -433,12 +433,12 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("refresh", refresh_command))
-    application.add_handler(CommandHandler("add-admin", add_admin_command))
+    application.add_handler(CommandHandler("add_admin", add_admin_command))
     application.add_handler(CommandHandler("show", show_command))
     application.add_handler(conv_handler)
     application.add_handler(delete_conv_handler)
     remove_admin_conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("remove-admin", remove_admin_list)],
+        entry_points=[CommandHandler("remove_admin", remove_admin_list)],
         states={
             REMOVE_ADMIN_CHOOSE: [CallbackQueryHandler(remove_admin_button, pattern="^rm_admin:")],
         },
