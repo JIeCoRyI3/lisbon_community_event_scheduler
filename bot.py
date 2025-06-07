@@ -135,7 +135,12 @@ async def _send_event_list(message, chat_id: int, username: str):
             [[InlineKeyboardButton(button_text, callback_data=callback)]]
         )
         text = format_event_with_users(title, desc, d, ti, loc, users)
-        await message.reply_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+        await message.reply_text(
+            text,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
 
 
 async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -422,7 +427,12 @@ async def apply_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [[InlineKeyboardButton("Cancel application", callback_data=f"cancel_app:{event_id}")]]
     )
     await query.answer("Applied")
-    await query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await query.message.edit_text(
+        text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboard,
+        disable_web_page_preview=True,
+    )
 
 
 async def cancel_application_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -438,7 +448,12 @@ async def cancel_application_button(update: Update, context: ContextTypes.DEFAUL
         [[InlineKeyboardButton("Apply to the event", callback_data=f"apply:{event_id}")]]
     )
     await query.answer("Cancelled")
-    await query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await query.message.edit_text(
+        text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboard,
+        disable_web_page_preview=True,
+    )
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
