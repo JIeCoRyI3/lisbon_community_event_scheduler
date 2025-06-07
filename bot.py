@@ -26,31 +26,43 @@ logging.basicConfig(level=logging.INFO)
 
 TITLE, DATE_PICKER, TIME = range(3)
 
+HELP_TEXT = (
+    "Available commands:\n"
+    "/start - show main menu\n"
+    "/cancel - cancel current action\n"
+    "/help - show this message"
+)
 
-def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [
         [InlineKeyboardButton("Schedule event", callback_data="schedule")],
         [InlineKeyboardButton("Show events", callback_data="show")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text("Choose an option:", reply_markup=reply_markup)
+    await update.message.reply_text("Choose an option:", reply_markup=reply_markup)
 
 
-def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send a list of available commands."""
+    await update.message.reply_text(HELP_TEXT)
+
+
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
     if data == "schedule":
-        query.answer()
-        query.message.reply_text("Enter event title:")
+        await query.answer()
+        await query.message.reply_text("Enter event title:")
         return TITLE
     elif data == "show":
-        query.answer()
+        await query.answer()
         events = database.list_events(query.message.chat_id)
         if not events:
-            query.message.reply_text("No events found")
+            await query.message.reply_text("No events found")
         else:
             lines = [f"{t} on {d} at {ti}" for t, d, ti in events]
-            query.message.reply_text("\n".join(lines))
+            await query.message.reply_text("\n".join(lines))
         return ConversationHandler.END
 
 
@@ -78,13 +90,13 @@ def build_calendar(year: int, month: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def receive_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def receive_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["title"] = update.message.text
     now = date.today()
     context.user_data["calendar_year"] = now.year
     context.user_data["calendar_month"] = now.month
     markup = build_calendar(now.year, now.month)
-    update.message.reply_text("Select a date:", reply_markup=markup)
+    await update.message.reply_text("Select a date:", reply_markup=markup)
     return DATE_PICKER
 
 
@@ -99,7 +111,7 @@ def change_month(year: int, month: int, delta: int):
     return year, month
 
 
-def calendar_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def calendar_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
     year = context.user_data.get("calendar_year", date.today().year)
@@ -107,31 +119,31 @@ def calendar_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("day:"):
         date_str = data.split(":", 1)[1]
         context.user_data["date"] = date_str
-        query.answer()
-        query.message.edit_text(f"Selected {date_str}")
-        query.message.reply_text("Enter time (HH:MM, 24h):")
+        await query.answer()
+        await query.message.edit_text(f"Selected {date_str}")
+        await query.message.reply_text("Enter time (HH:MM, 24h):")
         return TIME
     elif data.startswith("next"):
         year, month = change_month(year, month, 1)
     elif data.startswith("prev"):
         year, month = change_month(year, month, -1)
     else:
-        query.answer()
+        await query.answer()
         return DATE_PICKER
 
     context.user_data["calendar_year"] = year
     context.user_data["calendar_month"] = month
     markup = build_calendar(year, month)
-    query.answer()
-    query.edit_message_reply_markup(reply_markup=markup)
+    await query.answer()
+    await query.edit_message_reply_markup(reply_markup=markup)
     return DATE_PICKER
 
 
-def receive_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def receive_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         datetime.strptime(update.message.text, "%H:%M")
     except ValueError:
-        update.message.reply_text("Invalid time format. Use HH:MM")
+        await update.message.reply_text("Invalid time format. Use HH:MM")
         return TIME
     context.user_data["time"] = update.message.text
 
@@ -141,12 +153,12 @@ def receive_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["date"],
         context.user_data["time"],
     )
-    update.message.reply_text("Event saved!")
+    await update.message.reply_text("Event saved!")
     return ConversationHandler.END
 
 
-def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    update.message.reply_text("Cancelled")
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Cancelled")
     return ConversationHandler.END
 
 
@@ -165,6 +177,7 @@ def main():
     )
 
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
     application.add_handler(conv_handler)
 
     application.run_polling()

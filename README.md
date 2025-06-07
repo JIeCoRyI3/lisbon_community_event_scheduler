@@ -22,4 +22,6 @@ BOT_TOKEN=YOUR_TELEGRAM_TOKEN
 python bot.py
 ```
 
+Use `/help` in the chat to see the list of available commands.
+
 The bot stores events in a local SQLite database `events.db`.
