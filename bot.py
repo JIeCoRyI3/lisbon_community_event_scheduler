@@ -65,7 +65,7 @@ def is_admin(update: Update) -> bool:
 
 logging.basicConfig(level=logging.INFO)
 
-TITLE, DATE_PICKER, TIME, LOCATION, DELETE_CHOOSE, DELETE_CONFIRM, REMOVE_ADMIN_CHOOSE = range(7)
+TITLE, DESCRIPTION, DATE_PICKER, TIME, LOCATION, DELETE_CHOOSE, DELETE_CONFIRM, REMOVE_ADMIN_CHOOSE = range(8)
 
 HELP_TEXT = (
     "Available commands:\n"
@@ -103,16 +103,20 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 def format_events(events) -> str:
     """Return events formatted for display."""
     lines = [
-        f"<b>{t}</b>\n\U0001F550 When? {d} at {ti}\n\U0001F4CD {loc}"
-        for t, d, ti, loc in events
+        f"<b>{t}</b>\n{desc}\n\U0001F550 When? {d} at {ti}\n\U0001F4CD {loc}"
+        for t, desc, d, ti, loc in events
     ]
     return "\n\n".join(lines)
 
 
-def format_event_with_users(title: str, date: str, time: str, location: str, users: list[str]) -> str:
-    text = f"<b>{title}</b>\n\U0001F550 When? {date} at {time}\n\U0001F4CD {location}"
+def format_event_with_users(title: str, description: str, date: str, time: str, location: str, users: list[str]) -> str:
+    text = (
+        f"<b>{title}</b>\n{description}\n\U0001F550 When? {date} at {time}\n\U0001F4CD {location}"
+    )
     if users:
-        user_list = ", ".join(f"*{u}*" for u in users)
+        user_list = ", ".join(
+            f'<a href="https://t.me/{u}">@{u}</a>' for u in users
+        )
         text += f"\nWill go: {user_list}"
     return text
 
@@ -122,7 +126,7 @@ async def _send_event_list(message, chat_id: int, username: str):
     if not events:
         await message.reply_text("No events found")
         return
-    for event_id, title, d, ti, loc in events:
+    for event_id, title, desc, d, ti, loc in events:
         users = database.list_applicants(event_id)
         applied = username in users
         button_text = "Cancel application" if applied else "Apply to the event"
@@ -130,7 +134,7 @@ async def _send_event_list(message, chat_id: int, username: str):
         keyboard = InlineKeyboardMarkup(
             [[InlineKeyboardButton(button_text, callback_data=callback)]]
         )
-        text = format_event_with_users(title, d, ti, loc, users)
+        text = format_event_with_users(title, desc, d, ti, loc, users)
         await message.reply_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
 
@@ -230,7 +234,7 @@ async def _show_delete_list(message, chat_id):
                 f"{t} on {d} at {ti}", callback_data=f"del:{event_id}"
             )
         ]
-        for event_id, t, d, ti, _ in events
+        for event_id, t, _desc, d, ti, _ in events
     ]
     await message.reply_text(
         "Select event to delete:", reply_markup=InlineKeyboardMarkup(keyboard)
@@ -294,6 +298,12 @@ def build_calendar(year: int, month: int) -> InlineKeyboardMarkup:
 
 async def receive_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["title"] = update.message.text
+    await update.message.reply_text("Enter event description:")
+    return DESCRIPTION
+
+
+async def receive_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["description"] = update.message.text
     now = date.today()
     context.user_data["calendar_year"] = now.year
     context.user_data["calendar_month"] = now.month
@@ -359,6 +369,7 @@ async def receive_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     database.add_event(
         update.message.chat_id,
         context.user_data["title"],
+        context.user_data["description"],
         context.user_data["date"],
         context.user_data["time"],
         context.user_data["location"],
@@ -406,7 +417,7 @@ async def apply_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
     database.apply_to_event(event_id, username)
     event = database.get_event(event_id)
     users = database.list_applicants(event_id)
-    text = format_event_with_users(event[2], event[3], event[4], event[5], users)
+    text = format_event_with_users(event[2], event[3], event[4], event[5], event[6], users)
     keyboard = InlineKeyboardMarkup(
         [[InlineKeyboardButton("Cancel application", callback_data=f"cancel_app:{event_id}")]]
     )
@@ -422,7 +433,7 @@ async def cancel_application_button(update: Update, context: ContextTypes.DEFAUL
     database.cancel_application(event_id, username)
     event = database.get_event(event_id)
     users = database.list_applicants(event_id)
-    text = format_event_with_users(event[2], event[3], event[4], event[5], users)
+    text = format_event_with_users(event[2], event[3], event[4], event[5], event[6], users)
     keyboard = InlineKeyboardMarkup(
         [[InlineKeyboardButton("Apply to the event", callback_data=f"apply:{event_id}")]]
     )
@@ -461,6 +472,7 @@ def main():
         entry_points=[CallbackQueryHandler(button, pattern="^(schedule|show)$"), CommandHandler("schedule", schedule_command)],
         states={
             TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_title)],
+            DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_description)],
             DATE_PICKER: [CallbackQueryHandler(calendar_handler)],
             TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_time)],
             LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_location)],

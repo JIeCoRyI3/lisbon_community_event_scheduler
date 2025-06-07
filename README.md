@@ -28,3 +28,10 @@ python bot.py
 Use `/help` in the chat to see the list of available commands.
 
 The bot stores events in a local SQLite database `events.db`.
+
+When scheduling an event you will be asked for:
+
+1. **Title** – short summary of the event
+2. **Description** – longer text describing the event
+3. **Date** and **Time**
+4. **Location**

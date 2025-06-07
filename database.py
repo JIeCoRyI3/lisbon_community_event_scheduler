@@ -11,15 +11,18 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         chat_id INTEGER,
         title TEXT NOT NULL,
+        description TEXT,
         date TEXT NOT NULL,
         time TEXT NOT NULL
     )"""
     )
-    # Ensure location column exists for backward compatibility
+    # Ensure columns exist for backward compatibility
     c.execute("PRAGMA table_info(events)")
     columns = [row[1] for row in c.fetchall()]
     if "location" not in columns:
         c.execute("ALTER TABLE events ADD COLUMN location TEXT")
+    if "description" not in columns:
+        c.execute("ALTER TABLE events ADD COLUMN description TEXT")
     # Table for event applications
     c.execute(
         """CREATE TABLE IF NOT EXISTS event_applications (
@@ -33,12 +36,12 @@ def init_db():
     conn.close()
 
 
-def add_event(chat_id: int, title: str, date: str, time: str, location: str):
+def add_event(chat_id: int, title: str, description: str, date: str, time: str, location: str):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute(
-        "INSERT INTO events (chat_id, title, date, time, location) VALUES (?, ?, ?, ?, ?)",
-        (chat_id, title, date, time, location),
+        "INSERT INTO events (chat_id, title, description, date, time, location) VALUES (?, ?, ?, ?, ?, ?)",
+        (chat_id, title, description, date, time, location),
     )
     conn.commit()
     conn.close()
@@ -48,7 +51,7 @@ def list_events(chat_id: int):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute(
-        "SELECT title, date, time, location FROM events WHERE chat_id=? ORDER BY date, time",
+        "SELECT title, description, date, time, location FROM events WHERE chat_id=? ORDER BY date, time",
         (chat_id,),
     )
     rows = c.fetchall()
@@ -60,7 +63,7 @@ def list_events_with_ids(chat_id: int):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute(
-        "SELECT id, title, date, time, location FROM events WHERE chat_id=? ORDER BY date, time",
+        "SELECT id, title, description, date, time, location FROM events WHERE chat_id=? ORDER BY date, time",
         (chat_id,),
     )
     rows = c.fetchall()
@@ -127,7 +130,7 @@ def get_event(event_id: int):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute(
-        "SELECT id, chat_id, title, date, time, location FROM events WHERE id=?",
+        "SELECT id, chat_id, title, description, date, time, location FROM events WHERE id=?",
         (event_id,),
     )
     row = c.fetchone()
