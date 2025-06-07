@@ -11,6 +11,7 @@ from telegram import (
     BotCommand,
     MenuButtonCommands,
 )
+from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -35,6 +36,8 @@ TITLE, DATE_PICKER, TIME, LOCATION = range(4)
 HELP_TEXT = (
     "Available commands:\n"
     "/start - show main menu\n"
+    "/schedule - schedule event\n"
+    "/show - show events\n"
     "/cancel - cancel current action\n"
     "/help - show this message"
 )
@@ -54,6 +57,32 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(HELP_TEXT)
 
 
+def format_events(events) -> str:
+    """Return events formatted for display."""
+    lines = [
+        f"<b>{t}</b>\n\U0001F550 When? {d} at {ti}\n\U0001F4CD {loc}"
+        for t, d, ti, loc in events
+    ]
+    return "\n\n".join(lines)
+
+
+async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start scheduling via /schedule command."""
+    await update.message.reply_text("Enter event title:")
+    return TITLE
+
+
+async def show_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show events via /show command."""
+    events = database.list_events(update.message.chat_id)
+    if not events:
+        await update.message.reply_text("No events found")
+    else:
+        await update.message.reply_text(
+            format_events(events), parse_mode=ParseMode.HTML
+        )
+
+
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -67,8 +96,9 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not events:
             await query.message.reply_text("No events found")
         else:
-            lines = [f"{t} on {d} at {ti} - {loc}" for t, d, ti, loc in events]
-            await query.message.reply_text("\n".join(lines))
+            await query.message.reply_text(
+                format_events(events), parse_mode=ParseMode.HTML
+            )
         return ConversationHandler.END
 
 
@@ -183,6 +213,8 @@ async def setup_bot(application: Application) -> None:
     await application.bot.set_my_commands(
         [
             BotCommand("start", "Show main menu"),
+            BotCommand("schedule", "Schedule event"),
+            BotCommand("show", "Show events"),
             BotCommand("help", "Show help message"),
             BotCommand("cancel", "Cancel current action"),
         ]
@@ -198,7 +230,7 @@ def main():
     )
 
     conv_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(button)],
+        entry_points=[CallbackQueryHandler(button), CommandHandler("schedule", schedule_command)],
         states={
             TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_title)],
             DATE_PICKER: [CallbackQueryHandler(calendar_handler)],
@@ -210,6 +242,7 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("show", show_command))
     application.add_handler(conv_handler)
 
     application.run_polling()
