@@ -109,6 +109,31 @@ def format_events(events) -> str:
     return "\n\n".join(lines)
 
 
+def format_event_with_users(title: str, date: str, time: str, location: str, users: list[str]) -> str:
+    text = f"<b>{title}</b>\n\U0001F550 When? {date} at {time}\n\U0001F4CD {location}"
+    if users:
+        user_list = ", ".join(f"*{u}*" for u in users)
+        text += f"\nWill go: {user_list}"
+    return text
+
+
+async def _send_event_list(message, chat_id: int, username: str):
+    events = database.list_events_with_ids(chat_id)
+    if not events:
+        await message.reply_text("No events found")
+        return
+    for event_id, title, d, ti, loc in events:
+        users = database.list_applicants(event_id)
+        applied = username in users
+        button_text = "Cancel application" if applied else "Apply to the event"
+        callback = f"cancel_app:{event_id}" if applied else f"apply:{event_id}"
+        keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton(button_text, callback_data=callback)]]
+        )
+        text = format_event_with_users(title, d, ti, loc, users)
+        await message.reply_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+
+
 async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start scheduling via /schedule command."""
     await update.message.reply_text("Enter event title:")
@@ -117,13 +142,8 @@ async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show events via /show command."""
-    events = database.list_events(update.message.chat_id)
-    if not events:
-        await update.message.reply_text("No events found")
-    else:
-        await update.message.reply_text(
-            format_events(events), parse_mode=ParseMode.HTML
-        )
+    username = update.effective_user.username or update.effective_user.first_name
+    await _send_event_list(update.message, update.message.chat_id, username)
 
 
 async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -243,13 +263,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return TITLE
     elif data == "show":
         await query.answer()
-        events = database.list_events(query.message.chat_id)
-        if not events:
-            await query.message.reply_text("No events found")
-        else:
-            await query.message.reply_text(
-                format_events(events), parse_mode=ParseMode.HTML
-            )
+        username = query.from_user.username or query.from_user.first_name
+        await _send_event_list(query.message, query.message.chat_id, username)
         return ConversationHandler.END
 
 
@@ -383,6 +398,38 @@ async def confirm_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def apply_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    event_id = int(query.data.split(":", 1)[1])
+    user = query.from_user
+    username = user.username or user.first_name
+    database.apply_to_event(event_id, username)
+    event = database.get_event(event_id)
+    users = database.list_applicants(event_id)
+    text = format_event_with_users(event[2], event[3], event[4], event[5], users)
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("Cancel application", callback_data=f"cancel_app:{event_id}")]]
+    )
+    await query.answer("Applied")
+    await query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
+async def cancel_application_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    event_id = int(query.data.split(":", 1)[1])
+    user = query.from_user
+    username = user.username or user.first_name
+    database.cancel_application(event_id, username)
+    event = database.get_event(event_id)
+    users = database.list_applicants(event_id)
+    text = format_event_with_users(event[2], event[3], event[4], event[5], users)
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("Apply to the event", callback_data=f"apply:{event_id}")]]
+    )
+    await query.answer("Cancelled")
+    await query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Cancelled")
     return ConversationHandler.END
@@ -437,6 +484,8 @@ def main():
     application.add_handler(CommandHandler("show", show_command))
     application.add_handler(conv_handler)
     application.add_handler(delete_conv_handler)
+    application.add_handler(CallbackQueryHandler(apply_event, pattern="^apply:"))
+    application.add_handler(CallbackQueryHandler(cancel_application_button, pattern="^cancel_app:"))
     remove_admin_conv_handler = ConversationHandler(
         entry_points=[CommandHandler("remove_admin", remove_admin_list)],
         states={
