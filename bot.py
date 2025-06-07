@@ -4,7 +4,7 @@ from datetime import datetime, date
 from calendar import monthcalendar, month_name
 
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, BotCommand
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -24,7 +24,7 @@ if not TOKEN:
 
 logging.basicConfig(level=logging.INFO)
 
-TITLE, DATE_PICKER, TIME = range(3)
+TITLE, DATE_PICKER, TIME, LOCATION = range(4)
 
 HELP_TEXT = (
     "Available commands:\n"
@@ -61,7 +61,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not events:
             await query.message.reply_text("No events found")
         else:
-            lines = [f"{t} on {d} at {ti}" for t, d, ti in events]
+            lines = [f"{t} on {d} at {ti} - {loc}" for t, d, ti, loc in events]
             await query.message.reply_text("\n".join(lines))
         return ConversationHandler.END
 
@@ -118,9 +118,10 @@ async def calendar_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     month = context.user_data.get("calendar_month", date.today().month)
     if data.startswith("day:"):
         date_str = data.split(":", 1)[1]
-        context.user_data["date"] = date_str
+        formatted = datetime.strptime(date_str, "%Y-%m-%d").strftime("%d.%m.%Y")
+        context.user_data["date"] = formatted
         await query.answer()
-        await query.message.edit_text(f"Selected {date_str}")
+        await query.message.edit_text(f"Selected {formatted}")
         await query.message.reply_text("Enter time (HH:MM, 24h):")
         return TIME
     elif data.startswith("next"):
@@ -146,12 +147,19 @@ async def receive_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Invalid time format. Use HH:MM")
         return TIME
     context.user_data["time"] = update.message.text
+    await update.message.reply_text("Enter location:")
+    return LOCATION
+
+
+async def receive_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["location"] = update.message.text
 
     database.add_event(
         update.message.chat_id,
         context.user_data["title"],
         context.user_data["date"],
         context.user_data["time"],
+        context.user_data["location"],
     )
     await update.message.reply_text("Event saved!")
     return ConversationHandler.END
@@ -172,6 +180,7 @@ def main():
             TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_title)],
             DATE_PICKER: [CallbackQueryHandler(calendar_handler)],
             TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_time)],
+            LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_location)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
@@ -179,6 +188,14 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(conv_handler)
+
+    application.bot.set_my_commands(
+        [
+            BotCommand("start", "Show main menu"),
+            BotCommand("help", "Show help message"),
+            BotCommand("cancel", "Cancel current action"),
+        ]
+    )
 
     application.run_polling()
 
