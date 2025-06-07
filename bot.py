@@ -29,9 +29,26 @@ TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("BOT_TOKEN not set in .env")
 
+ADMINS_FILE = "admins.txt"
+
+
+def load_admins() -> set[str]:
+    if not os.path.exists(ADMINS_FILE):
+        return set()
+    with open(ADMINS_FILE) as f:
+        return {line.strip() for line in f if line.strip()}
+
+
+ADMINS = load_admins()
+
+
+def is_admin(update: Update) -> bool:
+    user = update.effective_user
+    return user and user.username in ADMINS
+
 logging.basicConfig(level=logging.INFO)
 
-TITLE, DATE_PICKER, TIME, LOCATION = range(4)
+TITLE, DATE_PICKER, TIME, LOCATION, DELETE_CHOOSE, DELETE_CONFIRM = range(6)
 
 HELP_TEXT = (
     "Available commands:\n"
@@ -48,13 +65,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         [InlineKeyboardButton("Schedule event", callback_data="schedule")],
         [InlineKeyboardButton("Show events", callback_data="show")],
     ]
+    if is_admin(update):
+        keyboard.append([InlineKeyboardButton("Delete event", callback_data="delete")])
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Choose an option:", reply_markup=reply_markup)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a list of available commands."""
-    await update.message.reply_text(HELP_TEXT)
+    text = HELP_TEXT
+    if is_admin(update):
+        text += "\n/delete - delete event"
+    await update.message.reply_text(text)
 
 
 def format_events(events) -> str:
@@ -81,6 +103,41 @@ async def show_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             format_events(events), parse_mode=ParseMode.HTML
         )
+
+
+async def _show_delete_list(message, chat_id):
+    events = database.list_events_with_ids(chat_id)
+    if not events:
+        await message.reply_text("No events found")
+        return ConversationHandler.END
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                f"{t} on {d} at {ti}", callback_data=f"del:{event_id}"
+            )
+        ]
+        for event_id, t, d, ti, _ in events
+    ]
+    await message.reply_text(
+        "Select event to delete:", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return DELETE_CHOOSE
+
+
+async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        await update.message.reply_text("You are not authorized to delete events.")
+        return ConversationHandler.END
+    return await _show_delete_list(update.message, update.effective_chat.id)
+
+
+async def delete_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_text("You are not authorized to delete events.")
+        return ConversationHandler.END
+    await update.callback_query.answer()
+    return await _show_delete_list(update.callback_query.message, update.effective_chat.id)
 
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -203,6 +260,35 @@ async def receive_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def choose_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    event_id = int(query.data.split(":", 1)[1])
+    context.user_data["delete_id"] = event_id
+    await query.answer()
+    keyboard = [
+        [InlineKeyboardButton("Confirm", callback_data="confirm_delete")],
+        [InlineKeyboardButton("Cancel", callback_data="cancel_delete")],
+    ]
+    await query.message.reply_text(
+        "Delete this event?", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return DELETE_CONFIRM
+
+
+async def confirm_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    await query.answer()
+    if data == "confirm_delete":
+        event_id = context.user_data.get("delete_id")
+        if event_id:
+            database.delete_event(event_id)
+        await query.message.edit_text("Event deleted")
+    else:
+        await query.message.edit_text("Deletion cancelled")
+    return ConversationHandler.END
+
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Cancelled")
     return ConversationHandler.END
@@ -215,6 +301,7 @@ async def setup_bot(application: Application) -> None:
             BotCommand("start", "Show main menu"),
             BotCommand("schedule", "Schedule event"),
             BotCommand("show", "Show events"),
+            BotCommand("delete", "Delete event"),
             BotCommand("help", "Show help message"),
             BotCommand("cancel", "Cancel current action"),
         ]
@@ -240,10 +327,20 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
+    delete_conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(delete_button, pattern="^delete$"), CommandHandler("delete", delete_command)],
+        states={
+            DELETE_CHOOSE: [CallbackQueryHandler(choose_delete, pattern="^del:")],
+            DELETE_CONFIRM: [CallbackQueryHandler(confirm_delete, pattern="^(confirm_delete|cancel_delete)$")],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("show", show_command))
     application.add_handler(conv_handler)
+    application.add_handler(delete_conv_handler)
 
     application.run_polling()
 
