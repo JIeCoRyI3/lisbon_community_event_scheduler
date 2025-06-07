@@ -45,3 +45,23 @@ def list_events(chat_id: int):
     rows = c.fetchall()
     conn.close()
     return rows
+
+
+def list_events_with_ids(chat_id: int):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute(
+        "SELECT id, title, date, time, location FROM events WHERE chat_id=? ORDER BY date, time",
+        (chat_id,),
+    )
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def delete_event(event_id: int):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("DELETE FROM events WHERE id=?", (event_id,))
+    conn.commit()
+    conn.close()

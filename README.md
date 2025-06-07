@@ -16,7 +16,9 @@ pip install -r requirements.txt
 BOT_TOKEN=YOUR_TELEGRAM_TOKEN
 ```
 
-3. Run the bot:
+3. Add Telegram usernames of admins to `admins.txt` (one per line). These users can delete events.
+
+4. Run the bot:
 
 ```bash
 python bot.py
