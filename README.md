@@ -17,6 +17,7 @@ BOT_TOKEN=YOUR_TELEGRAM_TOKEN
 ```
 
 3. Add Telegram usernames of admins to `admins.txt` (one per line). These users can delete events.
+   Users listed in `superadmins.txt` have extended permissions to manage the admin list.
 
 4. Run the bot:
 
