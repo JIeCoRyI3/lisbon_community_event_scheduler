@@ -30,25 +30,42 @@ if not TOKEN:
     raise RuntimeError("BOT_TOKEN not set in .env")
 
 ADMINS_FILE = "admins.txt"
+SUPERADMINS_FILE = "superadmins.txt"
 
 
-def load_admins() -> set[str]:
-    if not os.path.exists(ADMINS_FILE):
+def _load_list(filename: str) -> set[str]:
+    if not os.path.exists(filename):
         return set()
-    with open(ADMINS_FILE) as f:
+    with open(filename) as f:
         return {line.strip() for line in f if line.strip()}
 
 
+def load_admins() -> set[str]:
+    return _load_list(ADMINS_FILE)
+
+
+def load_superadmins() -> set[str]:
+    return _load_list(SUPERADMINS_FILE)
+
+
 ADMINS = load_admins()
+SUPERADMINS = load_superadmins()
+
+
+def is_superadmin(update: Update) -> bool:
+    user = update.effective_user
+    return user and user.username in SUPERADMINS
 
 
 def is_admin(update: Update) -> bool:
     user = update.effective_user
-    return user and user.username in ADMINS
+    return user and (
+        user.username in ADMINS or user.username in SUPERADMINS
+    )
 
 logging.basicConfig(level=logging.INFO)
 
-TITLE, DATE_PICKER, TIME, LOCATION, DELETE_CHOOSE, DELETE_CONFIRM = range(6)
+TITLE, DATE_PICKER, TIME, LOCATION, DELETE_CHOOSE, DELETE_CONFIRM, REMOVE_ADMIN_CHOOSE = range(7)
 
 HELP_TEXT = (
     "Available commands:\n"
@@ -76,6 +93,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     text = HELP_TEXT
     if is_admin(update):
         text += "\n/delete - delete event"
+    if is_superadmin(update):
+        text += "\n/refresh - reload admin lists"
+        text += "\n/add-admin - add a new admin"
+        text += "\n/remove-admin - remove an admin"
     await update.message.reply_text(text)
 
 
@@ -103,6 +124,79 @@ async def show_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             format_events(events), parse_mode=ParseMode.HTML
         )
+
+
+async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_superadmin(update):
+        await update.message.reply_text("You are not authorized to refresh roles.")
+        return
+    global ADMINS, SUPERADMINS
+    ADMINS = load_admins()
+    SUPERADMINS = load_superadmins()
+    await update.message.reply_text("Roles reloaded")
+
+
+def _normalize_username(name: str) -> str:
+    name = name.strip()
+    if name.startswith("@"):  # @username
+        return name[1:]
+    if "t.me/" in name:
+        return name.split("t.me/")[-1]
+    return name
+
+
+async def add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_superadmin(update):
+        await update.message.reply_text("You are not authorized to add admins.")
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /add-admin @username")
+        return
+    username = _normalize_username(context.args[0])
+    if not username:
+        await update.message.reply_text("Invalid username")
+        return
+    if username in ADMINS:
+        await update.message.reply_text("User is already an admin")
+        return
+    ADMINS.add(username)
+    with open(ADMINS_FILE, "a") as f:
+        f.write(username + "\n")
+    await update.message.reply_text(f"Added {username} as admin")
+
+
+async def remove_admin_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_superadmin(update):
+        await update.message.reply_text("You are not authorized to remove admins.")
+        return ConversationHandler.END
+    if not ADMINS:
+        await update.message.reply_text("No admins to remove")
+        return ConversationHandler.END
+    keyboard = [
+        [InlineKeyboardButton(u, callback_data=f"rm_admin:{u}")]
+        for u in sorted(ADMINS)
+    ]
+    await update.message.reply_text(
+        "Choose admin to remove:", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return REMOVE_ADMIN_CHOOSE
+
+
+async def remove_admin_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_superadmin(update):
+        await update.callback_query.answer()
+        return ConversationHandler.END
+    username = update.callback_query.data.split(":", 1)[1]
+    await update.callback_query.answer()
+    if username in ADMINS:
+        ADMINS.remove(username)
+        with open(ADMINS_FILE, "w") as f:
+            for u in sorted(ADMINS):
+                f.write(u + "\n")
+        await update.callback_query.message.edit_text(f"Removed {username} from admins")
+    else:
+        await update.callback_query.message.edit_text("User not found")
+    return ConversationHandler.END
 
 
 async def _show_delete_list(message, chat_id):
@@ -317,7 +411,7 @@ def main():
     )
 
     conv_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(button), CommandHandler("schedule", schedule_command)],
+        entry_points=[CallbackQueryHandler(button, pattern="^(schedule|show)$"), CommandHandler("schedule", schedule_command)],
         states={
             TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_title)],
             DATE_PICKER: [CallbackQueryHandler(calendar_handler)],
@@ -338,9 +432,19 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("refresh", refresh_command))
+    application.add_handler(CommandHandler("add-admin", add_admin_command))
     application.add_handler(CommandHandler("show", show_command))
     application.add_handler(conv_handler)
     application.add_handler(delete_conv_handler)
+    remove_admin_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("remove-admin", remove_admin_list)],
+        states={
+            REMOVE_ADMIN_CHOOSE: [CallbackQueryHandler(remove_admin_button, pattern="^rm_admin:")],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    application.add_handler(remove_admin_conv_handler)
 
     application.run_polling()
 
